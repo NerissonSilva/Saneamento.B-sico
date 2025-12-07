@@ -6,9 +6,17 @@ const compression = require('compression');
 const session = require('express-session');
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const pgSession = require('connect-pg-simple')(session);
+const { Pool } = require('pg');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// PostgreSQL connection pool
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+});
 
 // Middleware
 app.use(helmet());
@@ -19,7 +27,8 @@ app.use(cors({
   credentials: true
 }));
 
-app.use(session({
+// Session configuration with PostgreSQL store
+const sessionConfig = {
   secret: process.env.SESSION_SECRET || 'fallback-secret',
   resave: false,
   saveUninitialized: false,
@@ -27,7 +36,18 @@ app.use(session({
     secure: process.env.NODE_ENV === 'production',
     maxAge: 24 * 60 * 60 * 1000
   }
-}));
+};
+
+// Use PostgreSQL store if DATABASE_URL is available, otherwise fallback to MemoryStore
+if (process.env.DATABASE_URL) {
+  sessionConfig.store = new pgSession({
+    pool: pool,
+    tableName: 'session',
+    createTableIfMissing: true
+  });
+}
+
+app.use(session(sessionConfig));
 
 app.use(passport.initialize());
 app.use(passport.session());

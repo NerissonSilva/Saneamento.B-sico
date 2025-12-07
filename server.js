@@ -12,11 +12,24 @@ const { Pool } = require('pg');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Validate required environment variables
+const requiredEnvVars = ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_CALLBACK_URL'];
+const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
+
+if (missingEnvVars.length > 0) {
+  console.error('❌ Missing required environment variables:', missingEnvVars.join(', '));
+  console.error('Please configure these in your Render dashboard or .env file');
+  process.exit(1);
+}
+
 // PostgreSQL connection pool
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
-});
+let pool;
+if (process.env.DATABASE_URL) {
+  pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+  });
+}
 
 // Middleware
 app.use(helmet());
@@ -38,13 +51,16 @@ const sessionConfig = {
   }
 };
 
-// Use PostgreSQL store if DATABASE_URL is available, otherwise fallback to MemoryStore
-if (process.env.DATABASE_URL) {
+// Use PostgreSQL store if DATABASE_URL is available
+if (process.env.DATABASE_URL && pool) {
   sessionConfig.store = new pgSession({
     pool: pool,
     tableName: 'session',
     createTableIfMissing: true
   });
+  console.log('✅ Using PostgreSQL session store');
+} else {
+  console.log('⚠️  Using MemoryStore (not recommended for production)');
 }
 
 app.use(session(sessionConfig));
@@ -65,6 +81,8 @@ passport.use(new GoogleStrategy({
 
 passport.serializeUser((user, done) => done(null, user));
 passport.deserializeUser((user, done) => done(null, user));
+
+console.log('✅ Google OAuth configured successfully');
 
 // Routes
 app.get('/', (req, res) => {
@@ -102,5 +120,7 @@ app.post('/auth/logout', (req, res) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`✅ Server running on port ${PORT}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:8080'}`);
 });
